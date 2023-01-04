@@ -19,6 +19,7 @@ package golang
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -45,9 +46,21 @@ type defaultPushConsumer struct {
 	subscriptionExpressions     map[string]*FilterExpression
 }
 
-var NewPushConsumer = func(config *Config, opts ...SimpleConsumerOption) (PushConsumer, error) {
-
-	pc := &defaultPushConsumer{}
+var NewPushConsumer = func(config *Config, opts ...PushConsumerOption) (PushConsumer, error) {
+	c, err := NewClient(config)
+	if err != nil {
+		return nil, err
+	}
+	unifiedOpt := &pushConsumerOptions{}
+	for _, opt := range opts {
+		opt(unifiedOpt)
+	}
+	pc := &defaultPushConsumer{
+		cli:                     c.(*defaultClient),
+		groupName:               config.ConsumerGroup,
+		subscriptionExpressions: unifiedOpt.subscriptionExpressions,
+	}
+	pc.cli.clientImpl = pc
 	return pc, nil
 }
 
@@ -71,13 +84,22 @@ func (pc *defaultPushConsumer) wrapReceiveMessageRequest(batchSize int, messageQ
 }
 
 func (pc *defaultPushConsumer) Start() error {
-	return nil
+	err := pc.cli.startUp()
+	if err == nil {
+		return nil
+	}
+	err2 := pc.GracefulStop()
+	if err2 != nil {
+		return fmt.Errorf("startUp err=%w, shutdown err=%v", err, err2)
+	}
+	return err
 }
 
 func (pc *defaultPushConsumer) GracefulStop() error {
 	return nil
 }
 
+//TODO: handle err for getMessageQueues
 func (pc *defaultPushConsumer) Subscribe(topic string, filterExpression *FilterExpression) error {
 	pc.cli.getMessageQueues(context.Background(), topic)
 	pc.subscriptionExpressionsLock.Lock()
@@ -88,6 +110,7 @@ func (pc *defaultPushConsumer) Subscribe(topic string, filterExpression *FilterE
 	return nil
 }
 
+//TODO: handle err for getMessageQueues
 func (pc *defaultPushConsumer) Unsubscribe(topic string) error {
 	pc.cli.getMessageQueues(context.Background(), topic)
 	pc.subscriptionExpressionsLock.Lock()
@@ -95,5 +118,24 @@ func (pc *defaultPushConsumer) Unsubscribe(topic string) error {
 
 	delete(pc.subscriptionExpressions, topic)
 
+	return nil
+}
+
+func (pc *defaultPushConsumer) isClient() {}
+
+func (pc *defaultPushConsumer) wrapHeartbeatRequest() *v2.HeartbeatRequest {
+	return &v2.HeartbeatRequest{
+		Group: &v2.Resource{
+			Name: pc.groupName,
+		},
+		ClientType: v2.ClientType_PUSH_CONSUMER,
+	}
+}
+
+func (pc *defaultPushConsumer) onRecoverOrphanedTransactionCommand(endpoints *v2.Endpoints, command *v2.RecoverOrphanedTransactionCommand) error {
+	return nil
+}
+
+func (pc *defaultPushConsumer) onVerifyMessageCommand(endpoints *v2.Endpoints, command *v2.VerifyMessageCommand) error {
 	return nil
 }
