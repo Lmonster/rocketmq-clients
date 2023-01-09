@@ -99,9 +99,12 @@ func (pc *defaultPushConsumer) GracefulStop() error {
 	return nil
 }
 
-//TODO: handle err for getMessageQueues
 func (pc *defaultPushConsumer) Subscribe(topic string, filterExpression *FilterExpression) error {
-	pc.cli.getMessageQueues(context.Background(), topic)
+	_, err := pc.cli.getMessageQueues(context.Background(), topic)
+	if err != nil {
+		pc.cli.log.Errorf("subscribe error=%v with topic %s for pushConsumer", err, topic)
+		return err
+	}
 	pc.subscriptionExpressionsLock.Lock()
 	defer pc.subscriptionExpressionsLock.Unlock()
 
@@ -110,9 +113,7 @@ func (pc *defaultPushConsumer) Subscribe(topic string, filterExpression *FilterE
 	return nil
 }
 
-//TODO: handle err for getMessageQueues
 func (pc *defaultPushConsumer) Unsubscribe(topic string) error {
-	pc.cli.getMessageQueues(context.Background(), topic)
 	pc.subscriptionExpressionsLock.Lock()
 	defer pc.subscriptionExpressionsLock.Unlock()
 
